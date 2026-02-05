@@ -36,6 +36,18 @@ def rotation_matrix_from_vectors(vec1, vec2):
     
     s = np.linalg.norm(cross_prod)
     
+    # Handle numerical instability for very close vectors not caught by allclose
+    if s < 1e-6:
+        if dot_prod > 0:
+            return np.eye(3)
+        else:
+            # Opposite
+            axis = np.cross(u, np.array([1, 0, 0]))
+            if np.linalg.norm(axis) < 1e-6:
+                axis = np.cross(u, np.array([0, 1, 0]))
+            axis = normalize_vector(axis)
+            return rotation_matrix_from_axis_angle(axis, np.pi)
+
     # Skew-symmetric cross-product matrix
     K = np.array([
         [0, -cross_prod[2], cross_prod[1]],
