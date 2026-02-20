@@ -22,10 +22,14 @@ MP_RIGHT_FOOT_INDEX = 32
 
 # BVH Skeleton Definition
 # Hierarchical structure: Parent -> Children
+# BVH Skeleton Definition
+# Hierarchical structure: Parent -> Children
+# Matches Mixamo/ReadyPlayerMe Rig
 SKELETON_HIERARCHY = {
     'Hips': ['Spine', 'RightUpLeg', 'LeftUpLeg'],
     'Spine': ['Spine1'],
-    'Spine1': ['Neck', 'RightShoulder', 'LeftShoulder'],
+    'Spine1': ['Spine2'],
+    'Spine2': ['Neck', 'RightShoulder', 'LeftShoulder'],
     'Neck': ['Head'],
     'Head': [],
     'RightShoulder': ['RightArm'],
@@ -45,15 +49,15 @@ SKELETON_HIERARCHY = {
 }
 
 # Mapping: BVH Joint Name -> List of MediaPipe Landmarks to derive position from
-# For simple joints, it's a 1-to-1 mapping. For Hips, it's often the midpoint of Left and Right Hips.
 LANDMARK_MAP = {
     'Hips': [MP_LEFT_HIP, MP_RIGHT_HIP], # Midpoint
-    'Spine': [MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER, MP_LEFT_HIP, MP_RIGHT_HIP], # Approximate center of torso
-    'Spine1': [MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER], # Midpoint of shoulders
-    'Neck': [MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER], # Often same as spine top, close to shoulders
-    'Head': [MP_NOSE], # Nose or midpoint of ears
+    'Spine': [MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER, MP_LEFT_HIP, MP_RIGHT_HIP], # Lower/Mid Spine approximation
+    'Spine1': [MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER, MP_LEFT_HIP, MP_RIGHT_HIP], # Mid/Upper Spine approximation
+    'Spine2': [MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER], # Upper Chest
+    'Neck': [MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER], # Neck base
+    'Head': [MP_NOSE], 
     'RightShoulder': [MP_RIGHT_SHOULDER],
-    'RightArm': [MP_RIGHT_SHOULDER], # Upper arm starts at shoulder
+    'RightArm': [MP_RIGHT_SHOULDER], 
     'RightForeArm': [MP_RIGHT_ELBOW],
     'RightHand': [MP_RIGHT_WRIST],
     'LeftShoulder': [MP_LEFT_SHOULDER],
@@ -69,28 +73,27 @@ LANDMARK_MAP = {
 }
 
 # Rest Pose Offsets (T-Pose usually)
-# These are relative offsets from parent to child in the Zero-Rotation pose.
-# Start with a standard unit scale, can be calibrated later.
-# Units: Arbitrary (e.g., cm or meters), usually consistent with BVH standards (often inches or cm).
-# This is a template; might need adjustment based on specific rig.
+# Adjusted for a standard humanoid rig (Mixamo/RPM style)
+# Units: cm (approximate)
 REST_POSE_OFFSETS = {
-    'Hips': np.array([0.0, 0.0, 0.0]), # Root, global position
+    'Hips': np.array([0.0, 100.0, 0.0]), # Root height ~1m
     'Spine': np.array([0.0, 10.0, 0.0]),
     'Spine1': np.array([0.0, 10.0, 0.0]),
-    'Neck': np.array([0.0, 5.0, 0.0]),
-    'Head': np.array([0.0, 5.0, 0.0]),
-    'RightShoulder': np.array([-5.0, 10.0, 0.0]), # Relative to Spine1
-    'RightArm': np.array([-5.0, 0.0, 0.0]),
-    'RightForeArm': np.array([-10.0, 0.0, 0.0]),
-    'RightHand': np.array([-10.0, 0.0, 0.0]),
-    'LeftShoulder': np.array([5.0, 10.0, 0.0]),
-    'LeftArm': np.array([5.0, 0.0, 0.0]),
-    'LeftForeArm': np.array([10.0, 0.0, 0.0]),
-    'LeftHand': np.array([10.0, 0.0, 0.0]),
-    'RightUpLeg': np.array([-5.0, -5.0, 0.0]), # Relative to Hips
-    'RightLeg': np.array([0.0, -15.0, 0.0]),
-    'RightFoot': np.array([0.0, -15.0, 0.0]),
-    'LeftUpLeg': np.array([5.0, -5.0, 0.0]),
-    'LeftLeg': np.array([0.0, -15.0, 0.0]),
-    'LeftFoot': np.array([0.0, -15.0, 0.0])
+    'Spine2': np.array([0.0, 10.0, 0.0]),
+    'Neck': np.array([0.0, 10.0, 0.0]),
+    'Head': np.array([0.0, 10.0, 0.0]),
+    'RightShoulder': np.array([-5.0, 10.0, 0.0]), # Clavicle
+    'RightArm': np.array([-10.0, 0.0, 0.0]),
+    'RightForeArm': np.array([-25.0, 0.0, 0.0]),
+    'RightHand': np.array([-25.0, 0.0, 0.0]),
+    'LeftShoulder': np.array([5.0, 10.0, 0.0]), # Clavicle
+    'LeftArm': np.array([10.0, 0.0, 0.0]),
+    'LeftForeArm': np.array([25.0, 0.0, 0.0]),
+    'LeftHand': np.array([25.0, 0.0, 0.0]),
+    'RightUpLeg': np.array([-10.0, -5.0, 0.0]), 
+    'RightLeg': np.array([0.0, -40.0, 0.0]),
+    'RightFoot': np.array([0.0, -40.0, 0.0]),
+    'LeftUpLeg': np.array([10.0, -5.0, 0.0]),
+    'LeftLeg': np.array([0.0, -40.0, 0.0]),
+    'LeftFoot': np.array([0.0, -40.0, 0.0])
 }
