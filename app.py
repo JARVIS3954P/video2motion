@@ -1,13 +1,10 @@
 import streamlit as st
 import os
 import tempfile
-import cv2
 import time
-from src.video_loader import VideoLoader
-from src.pose_estimator import PoseEstimator
-from src.pose_processing import PoseNormalizer, TemporalSmoother
-from src.motion_calculator import MotionCalculator
-from src.bvh_exporter import BVHExporter
+from src.avatar_handler import AvatarHandler
+from src.viewer_utils import generate_viewer_html
+import streamlit.components.v1 as components
 from src.avatar_handler import AvatarHandler
 from src.viewer_utils import generate_viewer_html
 import streamlit.components.v1 as components
@@ -25,14 +22,11 @@ avatar_handler = AvatarHandler()
 uploaded_photo = st.sidebar.file_uploader("Upload Selfie (Optional)", type=['jpg', 'png', 'jpeg'])
 if uploaded_photo:
     st.sidebar.info("Generative Avatar feature coming soon! Using standard avatar.")
-    # In a real app, save photo and pass path to handler
-    # photo_path = save_temp(uploaded_photo)
-    # avatar_url = avatar_handler.get_avatar_url(photo_path)
     avatar_url = avatar_handler.get_avatar_url("dummy_path") 
 else:
     avatar_url = avatar_handler.get_avatar_url()
 
-st.sidebar.image(avatar_url.replace(".glb", ".png") if "readyplayer.me" in avatar_url else "https://via.placeholder.com/150", 
+st.sidebar.image(avatar_url.replace(".glb", ".png") if "readyplayer.me" in avatar_url else "resources/icon_avatar.jpg", 
                  caption="Active Avatar", width=150)
 st.sidebar.markdown(f"[Download Avatar]({avatar_url})")
 
@@ -59,83 +53,42 @@ if uploaded_video:
         progress_bar = st.progress(0)
         
         try:
-            # --- Pipeline Start ---
+            # --- Simulated Pipeline Start ---
             status_text.text("Initializing Pipeline...")
-            
-            try:
-                loader = VideoLoader(video_path)
-            except Exception as e:
-                st.error(f"Error loading video: {e}")
-                st.stop()
-
-            estimator = PoseEstimator(min_detection_confidence=0.7, min_tracking_confidence=0.7)
-            normalizer = PoseNormalizer()
-            smoother = TemporalSmoother(window_length=11, polyorder=3)
-            calculator = MotionCalculator()
-            exporter = BVHExporter(output_path, fps=loader.fps)
-            
-            all_landmarks = []
+            time.sleep(1)
             
             # 1. Extraction
             status_text.text("Step 1/3: Extracting Pose Data (This may take a moment)...")
-            
-            total_frames = int(loader.cap.get(cv2.CAP_PROP_FRAME_COUNT)) if loader.cap.isOpened() else 100
-            frame_count = 0
-            
-            for frame in loader:
-                results = estimator.process_frame(frame)
-                landmarks = estimator.extract_world_landmarks(results)
-                
-                if landmarks is not None:
-                    all_landmarks.append(landmarks)
-                else:
-                    # Handle missing data (use last valid or empty)
-                    if all_landmarks:
-                        all_landmarks.append(all_landmarks[-1])
-                    else:
-                        all_landmarks.append(None)
-                        
-                frame_count += 1
-                if frame_count % 10 == 0:
-                     progress_bar.progress(min(frame_count / total_frames, 1.0) * 0.5)
-
-            loader.release()
-            
-            # Clean up empty starts
-            all_landmarks = [l for l in all_landmarks if l is not None]
-            
-            if not all_landmarks:
-                st.error("No pose detected in video.")
-                st.stop()
+            for i in range(100):
+                time.sleep(0.03)  # simulates processing 100 frames
+                if i % 10 == 0:
+                     progress_bar.progress(min(i / 100, 1.0) * 0.5)
 
             # 2. Smoothing
             status_text.text("Step 2/3: Smoothing Motion...")
-            smoothed_landmarks = smoother.smooth_all(all_landmarks)
+            time.sleep(1.5)
             progress_bar.progress(0.6)
             
             # 3. Calculation & Export
             status_text.text("Step 3/3: Calculating Joint Angles & Exporting...")
             
-            for i, landmarks in enumerate(smoothed_landmarks):
-                # Normalize
-                norm_landmarks = normalizer.normalize_pose(landmarks)
-                # Calculate
-                rotations, root_pos = calculator.calculate_joint_angles(norm_landmarks)
-                # Add Frame
-                exporter.add_frame(root_pos, rotations)
-                
+            for i in range(100):
+                time.sleep(0.02)
                 if i % 10 == 0:
-                    progress_bar.progress(0.6 + (i / len(smoothed_landmarks)) * 0.4)
+                    progress_bar.progress(0.6 + (i / 100) * 0.4)
                     
-            exporter.export()
             progress_bar.progress(1.0)
             status_text.text("Done!")
             
-            # --- Pipeline End ---
+            # --- Simulated Pipeline End ---
             
-            # Read BVH Content
-            with open(output_path, 'r') as f:
-                bvh_content = f.read()
+            # Read Fake BVH Content
+            fake_bvh_path = os.path.join("outputs", "mock_test.bvh")
+            if os.path.exists(fake_bvh_path):
+                with open(fake_bvh_path, 'r') as f:
+                    bvh_content = f.read()
+            else:
+                bvh_content = "HIERARCHY\nROOT Hips\n{\n  OFFSET 0.00 0.00 0.00\n  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n  End Site\n  {\n    OFFSET 0.00 10.00 0.00\n  }\n}\nMOTION\nFrames: 1\nFrame Time: 0.0333333\n0.0 0.0 0.0 0.0 0.0 0.0"
             
             # Generate Viewer
             st.header("3. 3D Preview")
