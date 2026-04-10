@@ -15,6 +15,9 @@ def rotation_matrix_from_vectors(vec1, vec2):
     u = normalize_vector(vec1)
     v = normalize_vector(vec2)
     
+    if np.linalg.norm(u) < 1e-6 or np.linalg.norm(v) < 1e-6:
+        return np.eye(3)
+        
     if np.allclose(u, v):
         return np.eye(3)
         

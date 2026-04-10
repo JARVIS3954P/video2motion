@@ -148,6 +148,11 @@ class PipelineRunner:
         exporter = BVHExporter(output_path=output_path, fps=loader.fps)
 
         n_frames = len(smoothed_landmarks)
+        
+        # Perform dynamic Frame 0 Calibration to establish rest vectors
+        first_frame_norm = normalizer.normalize_pose(smoothed_landmarks[0])
+        calculator.calibrate(first_frame_norm)
+        
         for i, landmarks in enumerate(smoothed_landmarks):
             norm_lm = normalizer.normalize_pose(landmarks)
             rotations, root_pos = calculator.calculate_joint_angles(norm_lm)

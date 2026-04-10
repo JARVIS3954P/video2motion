@@ -91,7 +91,7 @@ class BVHExporter:
             f.write(f"{indent}  End Site\n")
             f.write(f"{indent}  {{\n")
             # Small non-zero offset so the bone has visible length
-            f.write(f"{indent}    OFFSET 0.0 5.0 0.0\n")
+            f.write(f"{indent}    OFFSET 0.0 0.05 0.0\n")
             f.write(f"{indent}  }}\n")
 
         f.write(f"{indent}}}\n")

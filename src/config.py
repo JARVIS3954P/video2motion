@@ -76,26 +76,26 @@ LANDMARK_MAP = {
 # Adjusted for a standard humanoid rig (Mixamo/RPM style)
 # Units: cm (approximate)
 REST_POSE_OFFSETS = {
-    'Hips': np.array([0.0, 100.0, 0.0]), # Root height ~1m
-    'Spine': np.array([0.0, 10.0, 0.0]),
-    'Spine1': np.array([0.0, 10.0, 0.0]),
-    'Spine2': np.array([0.0, 10.0, 0.0]),
-    'Neck': np.array([0.0, 10.0, 0.0]),
-    'Head': np.array([0.0, 10.0, 0.0]),
-    'RightShoulder': np.array([-5.0, 10.0, 0.0]), # Clavicle
-    'RightArm': np.array([-10.0, 0.0, 0.0]),
-    'RightForeArm': np.array([-25.0, 0.0, 0.0]),
-    'RightHand': np.array([-25.0, 0.0, 0.0]),
-    'LeftShoulder': np.array([5.0, 10.0, 0.0]), # Clavicle
-    'LeftArm': np.array([10.0, 0.0, 0.0]),
-    'LeftForeArm': np.array([25.0, 0.0, 0.0]),
-    'LeftHand': np.array([25.0, 0.0, 0.0]),
-    'RightUpLeg': np.array([-10.0, -5.0, 0.0]), 
-    'RightLeg': np.array([0.0, -40.0, 0.0]),
-    'RightFoot': np.array([0.0, -40.0, 0.0]),
-    'LeftUpLeg': np.array([10.0, -5.0, 0.0]),
-    'LeftLeg': np.array([0.0, -40.0, 0.0]),
-    'LeftFoot': np.array([0.0, -40.0, 0.0])
+    'Hips': np.array([0.0, 1.0, 0.0]), # Root height ~1m
+    'Spine': np.array([0.0, 0.1, 0.0]),
+    'Spine1': np.array([0.0, 0.1, 0.0]),
+    'Spine2': np.array([0.0, 0.1, 0.0]),
+    'Neck': np.array([0.0, 0.1, 0.0]),
+    'Head': np.array([0.0, 0.1, 0.0]),
+    'RightShoulder': np.array([-0.05, 0.1, 0.0]), # Clavicle
+    'RightArm': np.array([-0.1, 0.0, 0.0]),
+    'RightForeArm': np.array([-0.25, 0.0, 0.0]),
+    'RightHand': np.array([-0.25, 0.0, 0.0]),
+    'LeftShoulder': np.array([0.05, 0.1, 0.0]), # Clavicle
+    'LeftArm': np.array([0.1, 0.0, 0.0]),
+    'LeftForeArm': np.array([0.25, 0.0, 0.0]),
+    'LeftHand': np.array([0.25, 0.0, 0.0]),
+    'RightUpLeg': np.array([-0.1, -0.05, 0.0]), 
+    'RightLeg': np.array([0.0, -0.4, 0.0]),
+    'RightFoot': np.array([0.0, -0.4, 0.0]),
+    'LeftUpLeg': np.array([0.1, -0.05, 0.0]),
+    'LeftLeg': np.array([0.0, -0.4, 0.0]),
+    'LeftFoot': np.array([0.0, -0.4, 0.0])
 }
 
 # Ordered bone connection pairs for skeleton line rendering

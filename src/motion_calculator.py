@@ -7,6 +7,61 @@ class MotionCalculator:
         self.skeleton = SKELETON_HIERARCHY
         self.landmark_map = LANDMARK_MAP
         self.rest_offsets = REST_POSE_OFFSETS
+        self.calibration_dirs = {}
+
+    def calibrate(self, frame_0_landmarks):
+        """
+        Calculate and cache the rest-pose direction vectors from Frame 0.
+        By setting Frame 0 as the reference, delta rotations start at [0, 0, 0],
+        preventing unrealistic twisting (spaghetti bones) from hardcoded T-Poses.
+        """
+        skeleton_positions = {}
+        for joint, indices in self.landmark_map.items():
+            if not indices:
+                skeleton_positions[joint] = np.zeros(3)
+                continue
+            points = frame_0_landmarks[indices, :3]
+            skeleton_positions[joint] = np.mean(points, axis=0)
+
+        # 1. Compute Hips Global Orientation at Frame 0
+        hip_center = skeleton_positions['Hips']
+        spine_pos   = skeleton_positions['Spine']
+        left_hip    = skeleton_positions['LeftUpLeg']   # +X
+        right_hip   = skeleton_positions['RightUpLeg']  # -X
+
+        raw_up    = spine_pos - hip_center
+        raw_left  = left_hip - right_hip
+
+        target_up = normalize_vector(raw_up)
+        target_left_raw = normalize_vector(raw_left)
+
+        if np.linalg.norm(raw_up) < 1e-6 or np.linalg.norm(raw_left) < 1e-6:
+            R_root_0 = np.eye(3)
+        else:
+            target_forward = normalize_vector(np.cross(target_left_raw, target_up))
+            if np.linalg.norm(target_forward) < 1e-6:
+                R_root_0 = np.eye(3)
+            else:
+                target_left = normalize_vector(np.cross(target_up, target_forward))
+                R_root_0 = np.column_stack((target_left, target_up, target_forward))
+                
+        inv_R_root_0 = np.linalg.inv(R_root_0)
+
+        # 2. Compute local rest directions for each bone
+        for joint_name, children in self.skeleton.items():
+            if children:
+                first_child = children[0]
+                vec = skeleton_positions[first_child] - skeleton_positions[joint_name]
+                dir_vec_global = normalize_vector(vec)
+                
+                if np.linalg.norm(vec) < 1e-6:
+                    rest_dir_local = normalize_vector(self.rest_offsets.get(first_child, np.array([0.0, -1.0, 0.0])))
+                else:
+                    # Map global frame-0 direction to local space assuming all parent local rotations are Identity
+                    # meaning R_global of any joint at Frame 0 equals R_root_0.
+                    rest_dir_local = inv_R_root_0 @ dir_vec_global
+                    
+                self.calibration_dirs[first_child] = normalize_vector(rest_dir_local)
 
     def calculate_joint_angles(self, frame_landmarks):
         """
@@ -126,11 +181,12 @@ class MotionCalculator:
              curr_vec = skeleton_positions[first_child] - skeleton_positions[joint_name]
              curr_dir = normalize_vector(curr_vec)
              
-             # Rest Vector in Local Space (from config)
-             # We assume rest pose is T-Pose.
-             # e.g. RightArm rest vector is (-1, 0, 0) relative to Shoulder.
-             rest_offset = self.rest_offsets[first_child] # Vector from joint to child in rest pose
-             rest_dir = normalize_vector(rest_offset)
+             # Fetch calibrated rest vector in Local Space (from calibration_dirs or config fallback)
+             if first_child in self.calibration_dirs:
+                 rest_dir = self.calibration_dirs[first_child]
+             else:
+                 rest_offset = self.rest_offsets[first_child]
+                 rest_dir = normalize_vector(rest_offset)
              
              # We need to rotate the Rest Vector (Local) by the Parent's Global Orientation
              # to compare it with the Current Vector (Global).
