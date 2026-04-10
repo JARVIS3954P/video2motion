@@ -86,41 +86,39 @@ class MotionCalculator:
         
         # Case 1: Hips (Root)
         if joint_name == 'Hips':
-            # Define Forward and Up vectors for Hips
-            # Up: Hips -> Spine (or mid-spine)
-            # Right: LeftHip -> RightHip
-            
-            # Using landmark positions directly
+            # Define the coordinate frame of the hips in world space.
+            # Up:      Hips -> Spine
+            # Right:   LeftUpLeg -> RightUpLeg
+            # Forward: cross(Right, Up)
+
             hip_center = skeleton_positions['Hips']
-            spine_pos = skeleton_positions['Spine'] # or Spine1
-            left_hip = skeleton_positions['LeftUpLeg'] # Approximation
-            right_hip = skeleton_positions['RightUpLeg']
-            
-            # Target vectors
-            target_up = normalize_vector(spine_pos - hip_center)
-            target_right = normalize_vector(right_hip - left_hip)
-            target_forward = normalize_vector(np.cross(target_right, target_up))
-            
-            # Re-orthogonalize Right
-            target_right = np.cross(target_up, target_forward)
-            
-            # Construct Rotation Matrix (Global)
-            # [Right, Up, Forward] as columns? Depends on coord system.
-            # OpenGL: X=Right, Y=Up, Z=Back (or Forward). 
-            # BVH often Y-Up.
-            # Let's assume standard basis: X=1,0,0 Y=0,1,0 Z=0,0,1
-            # We want to map Basis to Target.
-            
-            R_global = np.column_stack((target_right, target_up, target_forward))
-            
-            # But wait, is our Rest Pose aligned with World?
-            # Creating a matrix from scratch assumes Rest Pose was Identity.
-            # If Rest Pose has rotations, we need to account for them.
-            # Assuming T-Pose is our Identity reference.
-            
+            spine_pos   = skeleton_positions['Spine']
+            left_hip    = skeleton_positions['LeftUpLeg']
+            right_hip   = skeleton_positions['RightUpLeg']
+
+            raw_up    = spine_pos - hip_center
+            raw_right = right_hip - left_hip
+
+            target_up = normalize_vector(raw_up)
+            target_right_raw = normalize_vector(raw_right)
+
+            # Guard: if up or right are degenerate, fall back to identity
+            if np.linalg.norm(raw_up) < 1e-6 or np.linalg.norm(raw_right) < 1e-6:
+                R_global = np.eye(3)
+            else:
+                target_forward = normalize_vector(np.cross(target_right_raw, target_up))
+
+                # Guard: if cross product is degenerate (vectors nearly parallel)
+                if np.linalg.norm(np.cross(target_right_raw, target_up)) < 1e-6:
+                    R_global = np.eye(3)
+                else:
+                    # Re-orthogonalize right from the confirmed up & forward
+                    target_right = normalize_vector(np.cross(target_up, target_forward))
+                    # Build column matrix [Right | Up | Forward]
+                    R_global = np.column_stack((target_right, target_up, target_forward))
+
             global_orientations[joint_name] = R_global
-            
-            # Local rotation for Hips is same as Global (since parent is World)
+            # Local rotation for Hips equals Global (parent is World identity)
             rotations[joint_name] = rotation_matrix_to_euler(R_global, 'ZXY')
 
 

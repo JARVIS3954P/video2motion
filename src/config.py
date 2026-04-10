@@ -97,3 +97,32 @@ REST_POSE_OFFSETS = {
     'LeftLeg': np.array([0.0, -40.0, 0.0]),
     'LeftFoot': np.array([0.0, -40.0, 0.0])
 }
+
+# Ordered bone connection pairs for skeleton line rendering
+# Each tuple is (parent_joint, child_joint) matching SKELETON_HIERARCHY
+BONE_CONNECTIONS = [
+    # Spine chain
+    ('Hips', 'Spine'),
+    ('Spine', 'Spine1'),
+    ('Spine1', 'Spine2'),
+    ('Spine2', 'Neck'),
+    ('Neck', 'Head'),
+    # Right arm
+    ('Spine2', 'RightShoulder'),
+    ('RightShoulder', 'RightArm'),
+    ('RightArm', 'RightForeArm'),
+    ('RightForeArm', 'RightHand'),
+    # Left arm
+    ('Spine2', 'LeftShoulder'),
+    ('LeftShoulder', 'LeftArm'),
+    ('LeftArm', 'LeftForeArm'),
+    ('LeftForeArm', 'LeftHand'),
+    # Right leg
+    ('Hips', 'RightUpLeg'),
+    ('RightUpLeg', 'RightLeg'),
+    ('RightLeg', 'RightFoot'),
+    # Left leg
+    ('Hips', 'LeftUpLeg'),
+    ('LeftUpLeg', 'LeftLeg'),
+    ('LeftLeg', 'LeftFoot'),
+]

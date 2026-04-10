@@ -1,105 +1,110 @@
 import numpy as np
+import io
 from .config import SKELETON_HIERARCHY, REST_POSE_OFFSETS
 
+
 class BVHExporter:
-    def __init__(self, output_path, fps=30):
+    def __init__(self, output_path=None, fps=30):
+        """
+        Args:
+            output_path (str | None): If given, export() writes to disk.
+                                      Pass None to use get_bvh_string() only.
+            fps (float): Frames per second of the source video.
+        """
         self.output_path = output_path
         self.fps = fps
-        self.frames = []
-        self.joint_names = [] # To keep track of traversal order
+        self.frames = []          # list of (root_position, rotations)
         self.skeleton = SKELETON_HIERARCHY
         self.offsets = REST_POSE_OFFSETS
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def add_frame(self, root_position, rotations):
         """
         Add a frame of motion data.
-        
+
         Args:
             root_position (np.array): [x, y, z] position of Hips.
             rotations (dict): {joint_name: [z_deg, x_deg, y_deg]}
         """
         self.frames.append((root_position, rotations))
 
+    def get_bvh_string(self):
+        """Return BVH file content as a string (no disk I/O)."""
+        buf = io.StringIO()
+        self._write_bvh(buf)
+        return buf.getvalue()
+
     def export(self):
-        """Write the BVH file."""
+        """Write the BVH file to disk."""
+        if not self.output_path:
+            raise ValueError("output_path was not set. Use get_bvh_string() instead.")
         with open(self.output_path, 'w') as f:
-            f.write("HIERARCHY\n")
-            self._write_hierarchy(f, "Hips", 0)
-            
-            f.write("MOTION\n")
-            f.write(f"Frames: {len(self.frames)}\n")
-            f.write(f"Frame Time: {1.0/self.fps:.6f}\n")
-            
-            for root_pos, rotations in self.frames:
-                self._write_frame_data(f, root_pos, rotations)
-                
+            self._write_bvh(f)
         print(f"BVH exported to: {self.output_path}")
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _write_bvh(self, f):
+        """Write complete BVH content to a file-like object."""
+        f.write("HIERARCHY\n")
+        self._write_hierarchy(f, "Hips", 0)
+
+        f.write("MOTION\n")
+        f.write(f"Frames: {len(self.frames)}\n")
+        f.write(f"Frame Time: {1.0 / self.fps:.6f}\n")
+
+        for root_pos, rotations in self.frames:
+            self._write_frame_data(f, root_pos, rotations)
 
     def _write_hierarchy(self, f, joint_name, level):
         indent = "  " * level
-        
+
         offset = self.offsets.get(joint_name, np.zeros(3))
-        
+
         if joint_name == "Hips":
             f.write(f"{indent}ROOT {joint_name}\n")
         else:
             f.write(f"{indent}JOINT {joint_name}\n")
-            
+
         f.write(f"{indent}{{\n")
         f.write(f"{indent}  OFFSET {offset[0]:.6f} {offset[1]:.6f} {offset[2]:.6f}\n")
-        
-        if joint_name == "Hips":
-             f.write(f"{indent}  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n")
-        elif not self.skeleton.get(joint_name): # End Site
-             # Usually End Site doesn't have channels, but here we treat leaf joints as joints?
-             # Standard BVH has "End Site" block for leaves.
-             pass 
-        else:
-             f.write(f"{indent}  CHANNELS 3 Zrotation Xrotation Yrotation\n")
 
-        # Children
         children = self.skeleton.get(joint_name, [])
+
+        if joint_name == "Hips":
+            # Root: position + rotation channels
+            f.write(f"{indent}  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n")
+        elif children:
+            # Non-root joint with children: rotation only
+            f.write(f"{indent}  CHANNELS 3 Zrotation Xrotation Yrotation\n")
+        # Leaf joints: no channels (see End Site block below)
+
         if children:
             for child in children:
                 self._write_hierarchy(f, child, level + 1)
         else:
-            # Tip / End Site
-            # We need to define an offset for the end site.
-            # Usually we don't track the tip, so we make up a small offset or use a standard one.
+            # End Site block — required for valid BVH leaf joints
             f.write(f"{indent}  End Site\n")
             f.write(f"{indent}  {{\n")
-            # Heuristic end site offset (e.g. length of hand/foot)
-            # Just verify direction. 
-            # Or use (0,0,0) if we don't care about visual bones of the tips
-            f.write(f"{indent}    OFFSET 0.0 0.0 0.0\n") 
+            # Small non-zero offset so the bone has visible length
+            f.write(f"{indent}    OFFSET 0.0 5.0 0.0\n")
             f.write(f"{indent}  }}\n")
 
         f.write(f"{indent}}}\n")
-        
-        if joint_name not in self.joint_names:
-            self.joint_names.append(joint_name)
 
     def _write_frame_data(self, f, root_pos, rotations):
         line_data = []
-        
-        # Traversal order must match hierarchy writing order
-        # We can re-traverse or store the order.
-        # Let's re-traverse to be safe and simple.
-        
-        stack = ["Hips"]
-        processed = []
-        
-        # This needs to match the depth-first recursion of _write_hierarchy exactly.
-        # So we should use a helper generator or just the same recursion logic.
-        
-        self._collect_frame_data_recursive(f, "Hips", root_pos, rotations, line_data)
-        
+        self._collect_frame_data_recursive("Hips", root_pos, rotations, line_data)
         f.write(" ".join(line_data) + "\n")
-        
-    def _collect_frame_data_recursive(self, f, joint_name, root_pos, rotations, line_data):
-        
+
+    def _collect_frame_data_recursive(self, joint_name, root_pos, rotations, line_data):
         rot = rotations.get(joint_name, [0.0, 0.0, 0.0])
-        
+
         if joint_name == "Hips":
             # POS POS POS ZROT XROT YROT
             line_data.extend([
@@ -107,11 +112,14 @@ class BVHExporter:
                 f"{rot[0]:.6f}", f"{rot[1]:.6f}", f"{rot[2]:.6f}"
             ])
         else:
-            # ZROT XROT YROT
-            line_data.extend([
-                f"{rot[0]:.6f}", f"{rot[1]:.6f}", f"{rot[2]:.6f}"
-            ])
-            
+            children = self.skeleton.get(joint_name, [])
+            if children:
+                # Non-leaf joint: write rotation channels
+                line_data.extend([
+                    f"{rot[0]:.6f}", f"{rot[1]:.6f}", f"{rot[2]:.6f}"
+                ])
+            # Leaf joints have no channels in the data line (End Site only)
+
         children = self.skeleton.get(joint_name, [])
         for child in children:
-            self._collect_frame_data_recursive(f, child, root_pos, rotations, line_data)
+            self._collect_frame_data_recursive(child, root_pos, rotations, line_data)
