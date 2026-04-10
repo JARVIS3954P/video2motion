@@ -7,6 +7,7 @@ Pipeline:  Video → MediaPipe pose estimation → BVH export → Three.js 3D vi
 import base64
 import os
 import tempfile
+import streamlit.components.v1 as components
 
 import streamlit as st
 
@@ -263,7 +264,7 @@ with col_upload:
         )
 
         viewer_html = generate_skeleton_viewer_html(bvh_content, width=860, height=540)
-        st.html(viewer_html)
+        components.html(viewer_html, height=540)
 
         st.download_button(
             label="⬇️ Download BVH Animation",
@@ -332,11 +333,11 @@ with col_upload:
                     width=860,
                     height=540,
                 )
-                st.html(model_viewer_html)
+                components.html(model_viewer_html, height=540)
 
             elif glb_url:
                 _url_viewer = _build_url_model_viewer(glb_url, bvh_content, width=860, height=540)
-                st.html(_url_viewer)
+                components.html(_url_viewer, height=540)
 
 
 with col_settings:

@@ -85,40 +85,35 @@ class MotionCalculator:
         # We usually define Hips rotation based on the Hips-Spine vector and Hips-Legs plane.
         
         # Case 1: Hips (Root)
+        # Case 1: Hips (Root)
         if joint_name == 'Hips':
             # Define the coordinate frame of the hips in world space.
-            # Up:      Hips -> Spine
-            # Right:   LeftUpLeg -> RightUpLeg
-            # Forward: cross(Right, Up)
-
             hip_center = skeleton_positions['Hips']
             spine_pos   = skeleton_positions['Spine']
-            left_hip    = skeleton_positions['LeftUpLeg']
-            right_hip   = skeleton_positions['RightUpLeg']
+            left_hip    = skeleton_positions['LeftUpLeg']   # Positive X side
+            right_hip   = skeleton_positions['RightUpLeg']  # Negative X side
 
             raw_up    = spine_pos - hip_center
-            raw_right = right_hip - left_hip
+            raw_left  = left_hip - right_hip # Vector pointing to the subject's left (+X)
 
             target_up = normalize_vector(raw_up)
-            target_right_raw = normalize_vector(raw_right)
+            target_left_raw = normalize_vector(raw_left)
 
-            # Guard: if up or right are degenerate, fall back to identity
-            if np.linalg.norm(raw_up) < 1e-6 or np.linalg.norm(raw_right) < 1e-6:
+            if np.linalg.norm(raw_up) < 1e-6 or np.linalg.norm(raw_left) < 1e-6:
                 R_global = np.eye(3)
             else:
-                target_forward = normalize_vector(np.cross(target_right_raw, target_up))
+                # X cross Y = Z (Left cross Up = Forward towards camera)
+                target_forward = normalize_vector(np.cross(target_left_raw, target_up))
 
-                # Guard: if cross product is degenerate (vectors nearly parallel)
-                if np.linalg.norm(np.cross(target_right_raw, target_up)) < 1e-6:
+                if np.linalg.norm(target_forward) < 1e-6:
                     R_global = np.eye(3)
                 else:
-                    # Re-orthogonalize right from the confirmed up & forward
-                    target_right = normalize_vector(np.cross(target_up, target_forward))
-                    # Build column matrix [Right | Up | Forward]
-                    R_global = np.column_stack((target_right, target_up, target_forward))
+                    # Enforce perfectly orthogonal X axis
+                    target_left = normalize_vector(np.cross(target_up, target_forward))
+                    # Matrix columns:[X(Left), Y(Up), Z(Forward)]
+                    R_global = np.column_stack((target_left, target_up, target_forward))
 
             global_orientations[joint_name] = R_global
-            # Local rotation for Hips equals Global (parent is World identity)
             rotations[joint_name] = rotation_matrix_to_euler(R_global, 'ZXY')
 
 

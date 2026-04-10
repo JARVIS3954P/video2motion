@@ -88,10 +88,8 @@ class PoseEstimator:
 
     def extract_world_landmarks(self, result) -> np.ndarray | None:
         """
-        Extract world landmarks as a (33, 4) array [x, y, z, visibility].
-
+        Extract world landmarks as a (33, 4) array[x, y, z, visibility].
         World landmarks are in meters, origin at the mid-hip.
-        Returns None if no pose was detected in this frame.
         """
         if not result.pose_world_landmarks:
             return None
@@ -99,10 +97,9 @@ class PoseEstimator:
         lm_list = result.pose_world_landmarks[0]   # first (only) pose
         arr = np.zeros((33, 4), dtype=np.float32)
         for i, lm in enumerate(lm_list):
-            # Tasks API NormalizedLandmark has x,y,z and optionally visibility/presence
             arr[i, 0] = lm.x
-            arr[i, 1] = lm.y
-            arr[i, 2] = lm.z
+            arr[i, 1] = -lm.y   # FLIPPED: Make +Y point towards the Sky
+            arr[i, 2] = -lm.z   # FLIPPED: Make +Z point towards the Camera
             arr[i, 3] = getattr(lm, "visibility", 1.0) or 1.0
         return arr
 

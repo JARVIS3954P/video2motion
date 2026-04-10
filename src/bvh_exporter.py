@@ -79,10 +79,9 @@ class BVHExporter:
         if joint_name == "Hips":
             # Root: position + rotation channels
             f.write(f"{indent}  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n")
-        elif children:
-            # Non-root joint with children: rotation only
+        else:
+            # All non-root joints (including leaves) have rotation channels
             f.write(f"{indent}  CHANNELS 3 Zrotation Xrotation Yrotation\n")
-        # Leaf joints: no channels (see End Site block below)
 
         if children:
             for child in children:
@@ -112,13 +111,10 @@ class BVHExporter:
                 f"{rot[0]:.6f}", f"{rot[1]:.6f}", f"{rot[2]:.6f}"
             ])
         else:
-            children = self.skeleton.get(joint_name, [])
-            if children:
-                # Non-leaf joint: write rotation channels
-                line_data.extend([
-                    f"{rot[0]:.6f}", f"{rot[1]:.6f}", f"{rot[2]:.6f}"
-                ])
-            # Leaf joints have no channels in the data line (End Site only)
+            # Non-root joints: write rotation channels (including leaves)
+            line_data.extend([
+                f"{rot[0]:.6f}", f"{rot[1]:.6f}", f"{rot[2]:.6f}"
+            ])
 
         children = self.skeleton.get(joint_name, [])
         for child in children:
