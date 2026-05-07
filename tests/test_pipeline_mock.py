@@ -15,10 +15,10 @@ import numpy as np
 # Ensure project root is on the path when run directly
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.pose_processing import PoseNormalizer, TemporalSmoother
-from src.motion_calculator import MotionCalculator
-from src.bvh_exporter import BVHExporter
-from src.config import (
+from src.video_motion.core.pose_processing import PoseNormalizer, TemporalSmoother
+from src.video_motion.core.motion_calculator import MotionCalculator
+from src.video_motion.io.bvh_exporter import BVHExporter
+from src.video_motion.config import (
     MP_LEFT_HIP, MP_RIGHT_HIP,
     MP_LEFT_KNEE, MP_RIGHT_KNEE,
     MP_LEFT_SHOULDER, MP_RIGHT_SHOULDER,
@@ -29,7 +29,7 @@ from src.config import (
 )
 from tests.check_bvh import check_bvh
 
-OUTPUT_PATH = os.path.join("outputs", "mock_test.bvh")
+OUTPUT_PATH = os.path.join(r"C:\dev\data\video-motion-generation-outputs", "mock_test.bvh")
 N_FRAMES = 20  # enough for the smoother window
 
 
@@ -66,7 +66,7 @@ def _make_t_pose_landmarks() -> np.ndarray:
 
 def test_pipeline_mock():
     print("\n== Mock Pipeline Test =======================================")
-    os.makedirs("outputs", exist_ok=True)
+    os.makedirs(r"C:\dev\data\video-motion-generation-outputs", exist_ok=True)
 
     # 1. Build synthetic frame sequence
     base_lm = _make_t_pose_landmarks()

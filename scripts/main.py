@@ -1,11 +1,11 @@
 import argparse
 import os
 import cv2
-from src.video_loader import VideoLoader
-from src.pose_estimator import PoseEstimator
-from src.pose_processing import PoseNormalizer, TemporalSmoother
-from src.motion_calculator import MotionCalculator
-from src.bvh_exporter import BVHExporter
+from src.video_motion.io.video_loader import VideoLoader
+from src.video_motion.core.pose_estimator import PoseEstimator
+from src.video_motion.core.pose_processing import PoseNormalizer, TemporalSmoother
+from src.video_motion.core.motion_calculator import MotionCalculator
+from src.video_motion.io.bvh_exporter import BVHExporter
 
 def main():
     parser = argparse.ArgumentParser(description="One-Person Motion Extraction System")
@@ -20,7 +20,7 @@ def main():
     else:
         # Default output name based on input
         base_name = os.path.splitext(os.path.basename(input_path))[0]
-        output_path = os.path.join("outputs", f"{base_name}.bvh")
+        output_path = os.path.join(r"C:\dev\data\video-motion-generation-outputs", f"{base_name}.bvh")
         
     print(f"Processing: {input_path}")
     print(f"Output: {output_path}")

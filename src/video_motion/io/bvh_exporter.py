@@ -1,6 +1,6 @@
 import numpy as np
 import io
-from .config import SKELETON_HIERARCHY, REST_POSE_OFFSETS
+from ..config import SKELETON_HIERARCHY, REST_POSE_OFFSETS
 
 
 class BVHExporter:

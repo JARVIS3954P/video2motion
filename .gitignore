@@ -64,3 +64,4 @@ coverage.xml
 Documents/
 outputs/
 inputs/
+.codex_pydeps/

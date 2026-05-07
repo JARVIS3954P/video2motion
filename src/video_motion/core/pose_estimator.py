@@ -20,11 +20,12 @@ from mediapipe.tasks.python.vision import (
 )
 
 # Default model path — downloaded once into the project's models/ folder
-_DEFAULT_MODEL = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),   # project root
+_DEFAULT_MODEL = os.path.abspath(os.path.join(
+    os.path.dirname(__file__),
+    "..", "..", "..",         # Navigate up from src/video_motion/core to project root
     "models",
     "pose_landmarker_full.task",
-)
+))
 
 
 class PoseEstimator:

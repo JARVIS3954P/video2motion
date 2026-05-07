@@ -11,8 +11,12 @@ import streamlit.components.v1 as components
 
 import streamlit as st
 
-from src.pipeline_runner import PipelineRunner
-from src.viewer_utils import (
+import sys
+# Add project root to sys.path so 'src' can be imported
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.video_motion.pipeline.pipeline_runner import PipelineRunner
+from src.video_motion.utils.viewer_utils import (
     generate_skeleton_viewer_html,
     generate_model_viewer_html,
     GLB_SIZE_LIMIT_MB,
@@ -151,8 +155,13 @@ with st.sidebar:
     )
     smooth_window = st.slider(
         "Smoothing Window (frames)",
-        min_value=3, max_value=31, value=11, step=2,
-        help="Savitzky-Golay filter window. Larger = smoother but more lag.",
+        min_value=3, max_value=31, value=9, step=2,
+        help="Savitzky-Golay filter window. Larger removes jitter but can flatten bends.",
+    )
+    keep_root_motion = st.checkbox(
+        "Preserve Root Motion",
+        value=True,
+        help="Keep hip translation in the BVH so walking and body travel are not flattened in place.",
     )
 
     st.markdown("---")
@@ -207,8 +216,8 @@ with col_upload:
             tmp.write(uploaded_video.read())
             video_path = tmp.name
 
-        output_path = os.path.join("outputs", "animation.bvh")
-        os.makedirs("outputs", exist_ok=True)
+        output_path = os.path.join(r"C:\dev\data\video-motion-generation-outputs", "animation.bvh")
+        os.makedirs(r"C:\dev\data\video-motion-generation-outputs", exist_ok=True)
 
         status_placeholder = st.empty()
         progress_bar = st.progress(0, text="Initialising…")
@@ -221,6 +230,7 @@ with col_upload:
                 min_detection_confidence=detection_conf,
                 min_tracking_confidence=tracking_conf,
                 smooth_window=smooth_window,
+                keep_root_motion=keep_root_motion,
             )
             bvh_content = runner.run(
                 video_path=video_path,
@@ -249,13 +259,13 @@ with col_upload:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Section 3: 3D Skeleton Viewer ────────────────────────────────
+    # ── Section 3: 3D Skeleton Viewer & Photo-to-Avatar ────────────────
     if st.session_state.get("processed") and st.session_state.get("bvh_content"):
         bvh_content = st.session_state["bvh_content"]
 
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown(
-            '<div class="section-title">🦴 Step 3 — 3D Skeleton Preview</div>',
+            '<div class="section-title">🦴 Step 3 — 3D Skeleton Preview & Avatar</div>',
             unsafe_allow_html=True,
         )
         st.caption(
@@ -263,7 +273,31 @@ with col_upload:
             "Use the controls below the viewer to play / scrub the animation."
         )
 
-        viewer_html = generate_skeleton_viewer_html(bvh_content, width=860, height=540)
+        face_b64 = None
+        
+        # Photo to Avatar Expander
+        with st.expander("📸 Apply Photo to Avatar (Free & Local)", expanded=False):
+            st.markdown(
+                "Upload a selfie or clear face photo. The app extracts the face locally and maps "
+                "it onto the generated animated avatar."
+            )
+            photo_file = st.file_uploader(
+                "Upload Face Photo",
+                type=["jpg", "jpeg", "png"],
+                key="photo_uploader",
+            )
+            
+            if photo_file:
+                from src.video_motion.utils.face_extractor import extract_face_b64
+                photo_bytes = photo_file.read()
+                face_b64 = extract_face_b64(photo_bytes)
+                
+                if face_b64:
+                    st.success("✅ Face extracted successfully! It will now appear on the 3D skeleton.")
+                else:
+                    st.error("❌ No face detected in the photo. Please try a different image.")
+
+        viewer_html = generate_skeleton_viewer_html(bvh_content, face_b64=face_b64, width=860, height=540)
         components.html(viewer_html, height=540)
 
         st.download_button(
@@ -277,67 +311,38 @@ with col_upload:
 
         # ── Section 4: Optional GLB Model Viewer ─────────────────────
         with st.expander(
-            "🎭 Load 3D Model (optional) — apply animation to your own GLB character",
+            "🎭 Load 3D Model (optional) — apply animation to a full GLB character",
             expanded=False,
         ):
             st.markdown(
-                "Upload a rigged humanoid GLB (e.g. from [Mixamo](https://www.mixamo.com/) "
-                "or [Sketchfab](https://sketchfab.com/)) and the skeleton animation will be "
-                "retargeted onto it. Bone names must follow **Mixamo** naming convention for "
-                "best results."
+                "Upload a rigged humanoid GLB (e.g. from [Mixamo](https://www.mixamo.com/)) "
+                "and the skeleton animation will be retargeted onto it. Bone names must follow "
+                "**Mixamo** naming convention for best results."
             )
 
-            glb_tab_upload, glb_tab_url = st.tabs(["📁 Upload GLB file", "🔗 Use GLB URL"])
-
-            selected_glb_b64 = None
-            model_source_label = ""
-
-            with glb_tab_upload:
-                glb_file = st.file_uploader(
-                    f"Upload GLB file (max {GLB_SIZE_LIMIT_MB} MB)",
-                    type=["glb"],
-                    key="glb_uploader",
-                )
-                if glb_file:
-                    size_mb = glb_file.size / 1_048_576
-                    if size_mb > GLB_SIZE_LIMIT_MB:
-                        st.error(
-                            f"⚠️ File is {size_mb:.1f} MB — the limit is {GLB_SIZE_LIMIT_MB} MB. "
-                            "Please use a smaller model to avoid freezing the browser tab."
-                        )
-                    else:
-                        selected_glb_b64 = base64.b64encode(glb_file.read()).decode("utf-8")
-                        model_source_label = glb_file.name
-                        st.success(f"✅ Loaded **{glb_file.name}** ({size_mb:.1f} MB)")
-
-            with glb_tab_url:
-                glb_url = st.text_input(
-                    "Public GLB URL",
-                    placeholder="https://models.readyplayer.me/xxxx.glb",
-                    key="glb_url",
-                )
-                if glb_url:
-                    st.info(
-                        "URL-based models are loaded directly by the browser (CORS must allow it). "
-                        "If the model fails to appear, try uploading the file instead."
+            glb_file = st.file_uploader(
+                f"Upload GLB file (max {GLB_SIZE_LIMIT_MB} MB)",
+                type=["glb"],
+                key="glb_uploader",
+            )
+            
+            if glb_file:
+                size_mb = glb_file.size / 1_048_576
+                if size_mb > GLB_SIZE_LIMIT_MB:
+                    st.error(
+                        f"⚠️ File is {size_mb:.1f} MB — the limit is {GLB_SIZE_LIMIT_MB} MB. "
+                        "Please use a smaller model to avoid freezing the browser tab."
                     )
-                    # We pass the URL directly; the viewer will fetch it with GLTFLoader
-                    selected_glb_b64 = None  # signal to use URL path below
-                    model_source_label = glb_url
-
-            if selected_glb_b64 is not None:
-                # Uploaded file path: embed as base64
-                model_viewer_html = generate_model_viewer_html(
-                    glb_b64=selected_glb_b64,
-                    bvh_content=bvh_content,
-                    width=860,
-                    height=540,
-                )
-                components.html(model_viewer_html, height=540)
-
-            elif glb_url:
-                _url_viewer = _build_url_model_viewer(glb_url, bvh_content, width=860, height=540)
-                components.html(_url_viewer, height=540)
+                else:
+                    selected_glb_b64 = base64.b64encode(glb_file.read()).decode("utf-8")
+                    st.success(f"✅ Loaded **{glb_file.name}** ({size_mb:.1f} MB)")
+                    model_viewer_html = generate_model_viewer_html(
+                        glb_b64=selected_glb_b64,
+                        bvh_content=bvh_content,
+                        width=860,
+                        height=540,
+                    )
+                    components.html(model_viewer_html, height=540)
 
 
 with col_settings:
@@ -364,54 +369,4 @@ with col_settings:
     )
 
 
-# ── URL-based model viewer (separate helper — no external import needed) ──────
-def _build_url_model_viewer(glb_url: str, bvh_content: str, width: int, height: int) -> str:
-    """Viewer that loads a GLB by URL (browser fetches it, CORS-permitting)."""
-    from src.viewer_utils import _THREE, _ORBIT, _GLTF, _BVH
-    bvh_b64 = base64.b64encode(bvh_content.encode("utf-8")).decode("utf-8")
-
-    return (
-        f'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-        f'<title>Model Viewer</title>'
-        f'<style>*{{margin:0;padding:0;box-sizing:border-box;}}'
-        f'body{{background:#0d0d14;overflow:hidden;font-family:\'Segoe UI\',sans-serif;}}'
-        f'#cv{{width:{width}px;height:{height}px;position:relative;}}'
-        f'#ov{{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;'
-        f'justify-content:center;background:#0d0d14;color:#8090c0;font-size:14px;gap:12px;pointer-events:none;}}'
-        f'.sp{{width:36px;height:36px;border:3px solid rgba(80,120,255,.2);'
-        f'border-top-color:#5080ff;border-radius:50%;animation:spin .8s linear infinite;}}'
-        f'@keyframes spin{{to{{transform:rotate(360deg)}}}}</style></head><body>'
-        f'<div id="cv"><div id="ov"><div class="sp"></div><span>Loading model…</span></div></div>'
-        f'<script type="module">'
-        f'import * as THREE from "{_THREE}";'
-        f'import {{OrbitControls}} from "{_ORBIT}";'
-        f'import {{GLTFLoader}} from "{_GLTF}";'
-        f'import {{BVHLoader}} from "{_BVH}";'
-        f'const W={width},H={height};'
-        f'const renderer=new THREE.WebGLRenderer({{antialias:true}});'
-        f'renderer.setSize(W,H);renderer.shadowMap.enabled=true;'
-        f'document.getElementById("cv").prepend(renderer.domElement);'
-        f'const scene=new THREE.Scene();scene.background=new THREE.Color(0x0d0d14);'
-        f'scene.add(new THREE.AmbientLight(0xffffff,.8));'
-        f'const dl=new THREE.DirectionalLight(0xffffff,2.5);dl.position.set(4,10,6);scene.add(dl);'
-        f'const camera=new THREE.PerspectiveCamera(45,W/H,.01,200);'
-        f'camera.position.set(0,1.5,4);'
-        f'const ctl=new OrbitControls(camera,renderer.domElement);'
-        f'ctl.target.set(0,1,0);ctl.enableDamping=true;ctl.update();'
-        f'const bvh=new BVHLoader().parse(atob("{bvh_b64}"));'
-        f'const clip=bvh.clip;let mixer;'
-        f'new GLTFLoader().load("{glb_url}",gltf=>{{scene.add(gltf.scene);'
-        f'mixer=new THREE.AnimationMixer(gltf.scene);'
-        f'const bm={{}};gltf.scene.traverse(o=>{{bm[o.name]=o;}});'
-        f'const tracks=clip.tracks.filter(t=>{{const m=t.name.match(/\\[(.+?)\\]/);return m&&!!bm[m[1]];}});'
-        f'mixer.clipAction(new THREE.AnimationClip(clip.name,clip.duration,tracks)).play();'
-        f'document.getElementById("ov").style.display="none";}}'
-        f',undefined,()=>{{document.getElementById("ov").innerHTML'
-        f'=\'<span style="color:#ff6060">CORS error or invalid URL</span>\';}});'
-        f'const clock=new THREE.Clock();'
-        f'(function animate(){{requestAnimationFrame(animate);'
-        f'if(mixer)mixer.update(clock.getDelta());'
-        f'ctl.update();renderer.render(scene,camera);}})();'
-        f'</script></body></html>'
-    )
-
+# End of app.py
