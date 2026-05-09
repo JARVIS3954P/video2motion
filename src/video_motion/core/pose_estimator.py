@@ -90,18 +90,47 @@ class PoseEstimator:
     def extract_world_landmarks(self, result) -> np.ndarray | None:
         """
         Extract world landmarks as a (33, 4) array[x, y, z, visibility].
-        World landmarks are in meters, origin at the mid-hip.
+        We estimate absolute translation by comparing 2D and 3D shoulder distance.
         """
-        if not result.pose_world_landmarks:
+        if not result.pose_world_landmarks or not result.pose_landmarks:
             return None
 
-        lm_list = result.pose_world_landmarks[0]   # first (only) pose
+        lm_list = result.pose_world_landmarks[0]
         arr = np.zeros((33, 4), dtype=np.float32)
         for i, lm in enumerate(lm_list):
             arr[i, 0] = lm.x
             arr[i, 1] = -lm.y   # FLIPPED: Make +Y point towards the Sky
             arr[i, 2] = -lm.z   # FLIPPED: Make +Z point towards the Camera
             arr[i, 3] = getattr(lm, "visibility", 1.0) or 1.0
+
+        # Estimate global translation using 2D landmarks (perspective projection)
+        lm2d = result.pose_landmarks[0]
+        
+        # Distance between shoulders in 3D (meters)
+        w_sh_dist = np.linalg.norm(arr[11, :3] - arr[12, :3])
+        
+        # Distance between shoulders in 2D (normalized)
+        dx = lm2d[11].x - lm2d[12].x
+        dy = lm2d[11].y - lm2d[12].y
+        p_sh_dist = np.sqrt(dx*dx + dy*dy)
+        
+        if p_sh_dist > 1e-5:
+            # depth = 3D size / 2D size (assuming focal length ~ 1.0 normalized)
+            depth = w_sh_dist / p_sh_dist
+            
+            # Mid hip 2D position
+            mid_x = (lm2d[23].x + lm2d[24].x) / 2.0
+            mid_y = (lm2d[23].y + lm2d[24].y) / 2.0
+            
+            # Convert 2D center offset to 3D translation
+            tx = (mid_x - 0.5) * depth
+            ty = -(mid_y - 0.5) * depth
+            tz = -depth + 2.0 # offset so they don't start far back
+            
+            arr[:, 0] += tx
+            arr[:, 1] += ty
+            arr[:, 2] += tz
+
         return arr
 
     def extract_landmarks(self, result) -> np.ndarray | None:

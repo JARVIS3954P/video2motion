@@ -8,6 +8,7 @@ import base64
 import os
 import tempfile
 import streamlit.components.v1 as components
+import cv2
 
 import streamlit as st
 
@@ -18,8 +19,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.video_motion.pipeline.pipeline_runner import PipelineRunner
 from src.video_motion.utils.viewer_utils import (
     generate_skeleton_viewer_html,
-    generate_model_viewer_html,
-    GLB_SIZE_LIMIT_MB,
 )
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -171,6 +170,32 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+@st.cache_data(show_spinner=False, max_entries=2)
+def extract_video_landmarks(
+    video_bytes: bytes, 
+    det_conf: float, 
+    track_conf: float, 
+    start_time: float = None,
+    end_time: float = None
+):
+    """Cache the heavy pose extraction step based on video bytes and configuration."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+        tmp.write(video_bytes)
+        video_path = tmp.name
+
+    try:
+        runner = PipelineRunner(
+            min_detection_confidence=det_conf,
+            min_tracking_confidence=track_conf,
+        )
+        return runner.extract_landmarks(video_path, start_time=start_time, end_time=end_time)
+    finally:
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+        except PermissionError:
+            pass
+
 # ── Main layout ───────────────────────────────────────────────────────────────
 col_upload, col_settings = st.columns([3, 1], gap="large")
 
@@ -191,6 +216,26 @@ with col_upload:
             f"**{uploaded_video.name}** · "
             f"{uploaded_video.size / 1_048_576:.1f} MB"
         )
+        
+        # Write to temp file to get duration for trimming
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_dur:
+            tmp_dur.write(uploaded_video.getvalue())
+            tmp_video_path = tmp_dur.name
+            
+        try:
+            cap = cv2.VideoCapture(tmp_video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+            duration = frames / fps if fps > 0 else 0
+            cap.release()
+            os.remove(tmp_video_path)
+        except Exception:
+            duration = 10.0 # fallback
+
+        if duration > 0:
+            st.session_state["trim_start"] = None
+            st.session_state["trim_end"] = None
+        
     else:
         st.info("Supported formats: MP4, MOV, AVI, MKV · Best results with a single clearly visible person.")
 
@@ -211,11 +256,6 @@ with col_upload:
         st.caption("Upload a video above to enable processing.")
 
     if can_process and process_btn:
-        # Save video to a temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            tmp.write(uploaded_video.read())
-            video_path = tmp.name
-
         output_path = os.path.join(r"C:\dev\data\video-motion-generation-outputs", "animation.bvh")
         os.makedirs(r"C:\dev\data\video-motion-generation-outputs", exist_ok=True)
 
@@ -226,17 +266,35 @@ with col_upload:
             progress_bar.progress(min(fraction, 1.0), text=step)
 
         try:
+            # 1. Cached Extraction Step
+            progress_bar.progress(0.1, text="Step 1/3 - Extracting pose landmarks...")
+            video_bytes = uploaded_video.getvalue()
+            trim_s = st.session_state.get("trim_start", None)
+            trim_e = st.session_state.get("trim_end", None)
+            
+            landmarks, fps = extract_video_landmarks(
+                video_bytes, 
+                detection_conf, 
+                tracking_conf, 
+                start_time=trim_s,
+                end_time=trim_e
+            )
+            
+            # 2. Processing Step
             runner = PipelineRunner(
                 min_detection_confidence=detection_conf,
                 min_tracking_confidence=tracking_conf,
                 smooth_window=smooth_window,
-                keep_root_motion=keep_root_motion,
+                keep_root_motion=keep_root_motion
             )
-            bvh_content = runner.run(
-                video_path=video_path,
+            
+            bvh_content = runner.process_landmarks(
+                all_landmarks=landmarks,
+                fps=fps,
                 output_path=output_path,
                 progress_callback=on_progress,
             )
+            
             st.session_state["bvh_content"] = bvh_content
             st.session_state["processed"] = True
             progress_bar.progress(1.0, text="✅ Done!")
@@ -244,18 +302,12 @@ with col_upload:
                 f"Motion extracted successfully! "
                 f"BVH saved to `{output_path}`."
             )
-        except RuntimeError as e:
+        except Exception as e:
             progress_bar.empty()
-            st.error(f"❌ {e}")
+            st.error(f"❌ Processing failed: {e}")
+            if "High-Fidelity" in str(e) or "simple-romp" in str(e):
+                st.warning("💡 It looks like the Deep Learning dependencies failed to load or ran out of memory. Please switch back to 'Fast Mode (MediaPipe)' in the sidebar.")
             st.session_state["processed"] = False
-        finally:
-            # On Windows, cv2.VideoCapture can briefly hold the file handle
-            # even after .release() — silently skip deletion; OS cleans temp files.
-            try:
-                if os.path.exists(video_path):
-                    os.remove(video_path)
-            except PermissionError:
-                pass
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -265,7 +317,7 @@ with col_upload:
 
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown(
-            '<div class="section-title">🦴 Step 3 — 3D Skeleton Preview & Avatar</div>',
+            '<div class="section-title">🦴 Step 3 — 3D Skeleton Preview & Avatar Generation</div>',
             unsafe_allow_html=True,
         )
         st.caption(
@@ -275,7 +327,9 @@ with col_upload:
 
         face_b64 = None
         
-        # Photo to Avatar Expander
+
+        
+        # ── Photo to Avatar Expander (Face only) ──
         with st.expander("📸 Apply Photo to Avatar (Free & Local)", expanded=False):
             st.markdown(
                 "Upload a selfie or clear face photo. The app extracts the face locally and maps "
@@ -297,7 +351,14 @@ with col_upload:
                 else:
                     st.error("❌ No face detected in the photo. Please try a different image.")
 
-        viewer_html = generate_skeleton_viewer_html(bvh_content, face_b64=face_b64, width=860, height=540)
+        video_b64 = base64.b64encode(uploaded_video.getvalue()).decode("utf-8") if uploaded_video else None
+        viewer_html = generate_skeleton_viewer_html(
+            bvh_content, 
+            face_b64=face_b64, 
+            video_b64=video_b64, 
+            width=860, 
+            height=540
+        )
         components.html(viewer_html, height=540)
 
         st.download_button(
@@ -309,40 +370,7 @@ with col_upload:
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # ── Section 4: Optional GLB Model Viewer ─────────────────────
-        with st.expander(
-            "🎭 Load 3D Model (optional) — apply animation to a full GLB character",
-            expanded=False,
-        ):
-            st.markdown(
-                "Upload a rigged humanoid GLB (e.g. from [Mixamo](https://www.mixamo.com/)) "
-                "and the skeleton animation will be retargeted onto it. Bone names must follow "
-                "**Mixamo** naming convention for best results."
-            )
 
-            glb_file = st.file_uploader(
-                f"Upload GLB file (max {GLB_SIZE_LIMIT_MB} MB)",
-                type=["glb"],
-                key="glb_uploader",
-            )
-            
-            if glb_file:
-                size_mb = glb_file.size / 1_048_576
-                if size_mb > GLB_SIZE_LIMIT_MB:
-                    st.error(
-                        f"⚠️ File is {size_mb:.1f} MB — the limit is {GLB_SIZE_LIMIT_MB} MB. "
-                        "Please use a smaller model to avoid freezing the browser tab."
-                    )
-                else:
-                    selected_glb_b64 = base64.b64encode(glb_file.read()).decode("utf-8")
-                    st.success(f"✅ Loaded **{glb_file.name}** ({size_mb:.1f} MB)")
-                    model_viewer_html = generate_model_viewer_html(
-                        glb_b64=selected_glb_b64,
-                        bvh_content=bvh_content,
-                        width=860,
-                        height=540,
-                    )
-                    components.html(model_viewer_html, height=540)
 
 
 with col_settings:

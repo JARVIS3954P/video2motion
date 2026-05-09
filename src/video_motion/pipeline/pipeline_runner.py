@@ -1,5 +1,5 @@
 import os
-
+import numpy as np
 from ..core.motion_calculator import MotionCalculator
 from ..core.pose_estimator import PoseEstimator
 from ..core.pose_processing import PoseNormalizer, TemporalSmoother
@@ -19,24 +19,27 @@ class PipelineRunner:
         smooth_window: int = 9,
         smooth_polyorder: int = 2,
         keep_root_motion: bool = True,
+        filter_type: str = "1euro",
     ):
         self.min_detection_confidence = min_detection_confidence
         self.min_tracking_confidence = min_tracking_confidence
         self.smooth_window = smooth_window
         self.smooth_polyorder = smooth_polyorder
         self.keep_root_motion = keep_root_motion
+        self.filter_type = filter_type
 
-    def run(
-        self,
-        video_path: str,
-        output_path: str | None = None,
-        progress_callback=None,
-    ) -> str:
+    def extract_landmarks(
+        self, 
+        video_path: str, 
+        start_time: float = None,
+        end_time: float = None,
+        progress_callback=None
+    ) -> tuple[list, float]:
         self._cb = progress_callback or (lambda s, f: None)
         self._cb("Initialising pipeline...", 0.0)
 
         try:
-            loader = VideoLoader(video_path)
+            loader = VideoLoader(video_path, start_time=start_time, end_time=end_time)
         except (FileNotFoundError, IOError) as e:
             raise RuntimeError(f"Could not open video: {e}") from e
 
@@ -44,6 +47,7 @@ class PipelineRunner:
             min_detection_confidence=self.min_detection_confidence,
             min_tracking_confidence=self.min_tracking_confidence,
         )
+        
         estimator.set_fps(loader.fps)
 
         total_frames = loader.frame_count or 1
@@ -68,11 +72,23 @@ class PipelineRunner:
                 "No human pose was detected in the video. "
                 "Ensure the video contains a clearly visible person."
             )
+            
+        return all_landmarks, loader.fps
 
+    def process_landmarks(
+        self,
+        all_landmarks: list,
+        fps: float,
+        output_path: str | None = None,
+        progress_callback=None,
+    ) -> str:
+        self._cb = progress_callback or (lambda s, f: None)
         self._cb("Step 2/3 - Interpolating and smoothing motion data...", 0.50)
         smoother = TemporalSmoother(
             window_length=self.smooth_window,
             polyorder=self.smooth_polyorder,
+            fps=fps,
+            filter_type=self.filter_type
         )
         smoothed_landmarks = smoother.smooth_all(all_landmarks)
         self._cb("Step 2/3 - Smoothing motion data... done", 0.60)
@@ -82,7 +98,7 @@ class PipelineRunner:
 
         normalizer = PoseNormalizer()
         calculator = MotionCalculator()
-        exporter = BVHExporter(output_path=output_path, fps=loader.fps)
+        exporter = BVHExporter(output_path=output_path, fps=fps)
         n_frames = len(smoothed_landmarks)
 
         first_frame_norm = normalizer.normalize_pose(smoothed_landmarks[0])
@@ -91,12 +107,16 @@ class PipelineRunner:
         all_rotations = []
         all_root_pos = []
         first_root = normalizer.hip_center(smoothed_landmarks[0])
+        first_frame_lowest_y = np.min(smoothed_landmarks[0][:, 1])
+        ground_offset = -first_frame_lowest_y
 
         self._cb("Step 3/3 - Calculating joint angles...", 0.60)
         for i, landmarks in enumerate(smoothed_landmarks):
             root_pos = normalizer.hip_center(landmarks) - first_root
             if not self.keep_root_motion:
                 root_pos[:] = 0.0
+                
+            root_pos[1] += ground_offset
 
             norm_lm = normalizer.normalize_pose(landmarks)
             rotations, root_pos = calculator.calculate_joint_angles(norm_lm, root_position=root_pos)
@@ -122,3 +142,12 @@ class PipelineRunner:
         bvh_content = exporter.get_bvh_string()
         self._cb("Done!", 1.0)
         return bvh_content
+
+    def run(
+        self,
+        video_path: str,
+        output_path: str | None = None,
+        progress_callback=None,
+    ) -> str:
+        all_landmarks, fps = self.extract_landmarks(video_path, progress_callback)
+        return self.process_landmarks(all_landmarks, fps, output_path, progress_callback)

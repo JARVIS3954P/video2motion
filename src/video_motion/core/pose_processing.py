@@ -2,6 +2,7 @@ import numpy as np
 from scipy.signal import savgol_filter
 
 from ..config import MP_LEFT_HIP, MP_RIGHT_HIP
+from ..utils.filters import BatchedOneEuroFilter
 
 
 def _odd_window(requested: int, frame_count: int, polyorder: int) -> int | None:
@@ -36,9 +37,11 @@ class PoseNormalizer:
 
 
 class TemporalSmoother:
-    def __init__(self, window_length=5, polyorder=2):
+    def __init__(self, window_length=5, polyorder=2, fps=30.0, filter_type="1euro"):
         self.window_length = window_length
         self.polyorder = polyorder
+        self.fps = fps
+        self.filter_type = filter_type
         self.pose_buffer = []
 
     def update(self, landmarks):
@@ -71,62 +74,103 @@ class TemporalSmoother:
             return data
 
         frames, joints, _ = data.shape
-        window = _odd_window(self.window_length, frames, self.polyorder)
-        if window is None:
-            return data
+        
+        if self.filter_type == "1euro":
+            euro_filter = BatchedOneEuroFilter(min_cutoff=0.5, beta=0.01, d_cutoff=1.0, fps=self.fps)
+            smoothed = data.copy()
+            for joint in range(joints):
+                smoothed[:, joint, :3] = euro_filter(data[:, joint, :3])
+            
+            # Basic Foot Skating Reduction (IK Lock heuristic)
+            # Find foot indices: 27, 28 (ankles), 31, 32 (foot indices), 29, 30 (heels)
+            foot_joints = [27, 28, 29, 30, 31, 32]
+            for joint in foot_joints:
+                velocity = np.linalg.norm(np.diff(smoothed[:, joint, :3], axis=0), axis=-1)
+                velocity = np.insert(velocity, 0, velocity[0]) # Pad first frame
+                
+                # Threshold for locking: very slow movement = locked
+                lock_threshold = 0.005 # empirical
+                locked = velocity < lock_threshold
+                
+                # Lock positions
+                for i in range(1, frames):
+                    if locked[i]:
+                        smoothed[i, joint, :3] = smoothed[i-1, joint, :3]
 
-        smoothed = data.copy()
-        for joint in range(joints):
-            for coord in range(3):
-                smoothed[:, joint, coord] = savgol_filter(
-                    data[:, joint, coord],
-                    window,
-                    min(self.polyorder, window - 1),
-                    mode="interp",
-                )
-        return smoothed
+            return smoothed
+        else:
+            window = _odd_window(self.window_length, frames, self.polyorder)
+            if window is None:
+                return data
+
+            smoothed = data.copy()
+            for joint in range(joints):
+                for coord in range(3):
+                    smoothed[:, joint, coord] = savgol_filter(
+                        data[:, joint, coord],
+                        window,
+                        min(self.polyorder, window - 1),
+                        mode="interp",
+                    )
+            return smoothed
 
     def smooth_vectors(self, vectors):
         data = np.array(vectors, dtype=float)
         if len(data) == 0:
             return data
 
-        window = _odd_window(self.window_length, len(data), self.polyorder)
-        if window is None:
-            return data
+        if self.filter_type == "1euro":
+            euro_filter = BatchedOneEuroFilter(min_cutoff=0.1, beta=0.002, d_cutoff=1.0, fps=self.fps)
+            return euro_filter(data)
+        else:
+            window = _odd_window(self.window_length, len(data), self.polyorder)
+            if window is None:
+                return data
 
-        smoothed = data.copy()
-        for coord in range(data.shape[1]):
-            smoothed[:, coord] = savgol_filter(
-                data[:, coord],
-                window,
-                min(self.polyorder, window - 1),
-                mode="interp",
-            )
-        return smoothed
+            smoothed = data.copy()
+            for coord in range(data.shape[1]):
+                smoothed[:, coord] = savgol_filter(
+                    data[:, coord],
+                    window,
+                    min(self.polyorder, window - 1),
+                    mode="interp",
+                )
+            return smoothed
 
     def smooth_rotations(self, rotations):
         if not rotations:
             return rotations
 
-        window = _odd_window(self.window_length, len(rotations), 2)
-        if window is None:
-            return rotations
-
         joints = list(rotations[0].keys())
         smoothed = [dict(frame) for frame in rotations]
-        for joint in joints:
-            angles = np.array([frame[joint] for frame in rotations], dtype=float)
-            unwrapped = np.unwrap(np.radians(angles), axis=0)
-            for axis in range(3):
-                unwrapped[:, axis] = savgol_filter(
-                    unwrapped[:, axis],
-                    window,
-                    2,
-                    mode="interp",
-                )
-            degrees = np.degrees(unwrapped)
-            for frame_index in range(len(smoothed)):
-                smoothed[frame_index][joint] = degrees[frame_index]
 
-        return smoothed
+        if self.filter_type == "1euro":
+            euro_filter = BatchedOneEuroFilter(min_cutoff=0.5, beta=0.01, d_cutoff=1.0, fps=self.fps)
+            for joint in joints:
+                angles = np.array([frame[joint] for frame in rotations], dtype=float)
+                unwrapped = np.unwrap(np.radians(angles), axis=0)
+                filtered_rad = euro_filter(unwrapped)
+                degrees = np.degrees(filtered_rad)
+                for frame_index in range(len(smoothed)):
+                    smoothed[frame_index][joint] = degrees[frame_index]
+            return smoothed
+        else:
+            window = _odd_window(self.window_length, len(rotations), 2)
+            if window is None:
+                return rotations
+
+            for joint in joints:
+                angles = np.array([frame[joint] for frame in rotations], dtype=float)
+                unwrapped = np.unwrap(np.radians(angles), axis=0)
+                for axis in range(3):
+                    unwrapped[:, axis] = savgol_filter(
+                        unwrapped[:, axis],
+                        window,
+                        2,
+                        mode="interp",
+                    )
+                degrees = np.degrees(unwrapped)
+                for frame_index in range(len(smoothed)):
+                    smoothed[frame_index][joint] = degrees[frame_index]
+
+            return smoothed
